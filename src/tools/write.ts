@@ -4,11 +4,13 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { VoyagerClient } from '../browser/voyager.js';
 import type { RawPostResult } from '../browser/voyager.js';
+import type { BrowserEngine } from '../browser/engine.js';
 import type { WriteKind } from '../safety/write-operation.js';
 import type { Guard, ActionDescriptor } from '../browser/guard.js';
 import { ACTIONS } from '../browser/guard.js';
 import type { OperationOutcome } from '../safety/write-operation.js';
 import { ownFsdId, type NormalizedResponse } from '../browser/normalize.js';
+import { publishPostWithMediaDom } from '../browser/dom.js';
 import type { Logger } from '../types.js';
 import * as ep from '../browser/endpoints.js';
 import { ok, run, ToolError } from './result.js';
@@ -158,6 +160,7 @@ export function registerWriteTools(
   guard: Guard,
   logger: Logger,
   policy: CapabilityPolicy = { writesEnabled: false, experimentalMessagesEnabled: false },
+  engine?: BrowserEngine,
 ): void {
   async function submit(
     action: ActionDescriptor,
@@ -410,6 +413,46 @@ export function registerWriteTools(
           { text, visibility },
         );
         return ok(outcomePayload('create_post', outcome));
+      }),
+  );
+
+  registerTool(
+    server,
+    'create_post_with_media',
+    '[ALPHA, write] Publish a post with an image attachment and text to your LinkedIn feed via the authenticated browser composer. Gated: requires confirm:true.',
+    {
+      text: z.string().min(1).max(3000).describe('Post text'),
+      image_path: z.string().min(1).describe('Absolute local path to the image file (.jpg, .png, .webp)'),
+      ...confirmField,
+    },
+    async ({ text, image_path, confirm, operation_id, preview_hash, preview_token }) =>
+      run(logger, 'create_post_with_media', async () => {
+        const preview = review(
+          'create_post_with_media',
+          'self',
+          { text, image_path },
+          confirm,
+          operation_id,
+          preview_hash,
+          policy,
+          false,
+          guard,
+        );
+        if (preview) return preview;
+        if (!engine) throw new ToolError('PROVIDER_ERROR');
+        const outcome = await submit(
+          ACTIONS.comment,
+          'post',
+          { text, image_path },
+          operation_id,
+          (beforeDispatch) =>
+            publishPostWithMediaDom(engine, text, image_path, logger, beforeDispatch),
+          preview_token,
+          'create_post_with_media',
+          'self',
+          { text, image_path },
+        );
+        return ok(outcomePayload('create_post_with_media', outcome));
       }),
   );
 

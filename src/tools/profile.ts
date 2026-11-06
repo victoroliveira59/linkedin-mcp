@@ -8,6 +8,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { VoyagerError, type VoyagerClient } from '../browser/voyager.js';
+import type { BrowserEngine } from '../browser/engine.js';
 import type { Guard } from '../browser/guard.js';
 import { ACTIONS } from '../browser/guard.js';
 import type { Logger } from '../types.js';
@@ -18,10 +19,12 @@ import {
   collectComponentEntries,
   type NormalizedResponse,
 } from '../browser/normalize.js';
+import { scrapeProfilePosts } from '../browser/dom.js';
 import * as ep from '../browser/endpoints.js';
 import { ok, run, ToolError } from './result.js';
 import { assertReadResponse } from './provider-shape.js';
 import { registerTool } from './register.js';
+import { firstPage } from './pagination.js';
 
 /**
  * Fetch one profile section's component entries, tolerant of a section that
@@ -100,6 +103,7 @@ export function registerProfileTools(
   voyager: VoyagerClient,
   guard: Guard,
   logger: Logger,
+  engine?: BrowserEngine,
 ): void {
   registerTool(
     server,
@@ -133,6 +137,48 @@ export function registerProfileTools(
       run(logger, 'get_profile', async () => {
         const data = await guard.run(ACTIONS.getProfile, () => buildProfile(voyager, username));
         return ok(data, 'voyager', true);
+      }),
+  );
+
+  registerTool(
+    server,
+    'get_my_posts',
+    "Get the authenticated user's own recent LinkedIn posts/publications (text, activity URN, URL, reactions and comments count).",
+    {
+      count: z.number().int().min(1).max(25).default(10).describe('Posts to return (default 10)'),
+    },
+    async ({ count }) =>
+      run(logger, 'get_my_posts', async () => {
+        if (!engine) throw new ToolError('PROVIDER_ERROR');
+        const posts = await guard.run(ACTIONS.readGeneric, async () => {
+          const me = await voyager.voyagerGet<NormalizedResponse>(ep.me());
+          assertReadResponse(me);
+          const publicId = ownPublicId(me);
+          if (!publicId) throw new Error('Could not resolve own publicIdentifier from /me.');
+          return scrapeProfilePosts(engine, publicId, count, logger);
+        });
+        return firstPage(posts, count, 'dom');
+      }),
+  );
+
+  registerTool(
+    server,
+    'get_profile_posts',
+    'Get recent LinkedIn posts/publications for any member by their public identifier (e.g. "victor-dev-oliveira").',
+    {
+      username: z
+        .string()
+        .min(1)
+        .describe('LinkedIn public identifier / vanity slug, e.g. "victor-dev-oliveira"'),
+      count: z.number().int().min(1).max(25).default(10).describe('Posts to return (default 10)'),
+    },
+    async ({ username, count }) =>
+      run(logger, 'get_profile_posts', async () => {
+        if (!engine) throw new ToolError('PROVIDER_ERROR');
+        const posts = await guard.run(ACTIONS.readGeneric, () =>
+          scrapeProfilePosts(engine, username, count, logger),
+        );
+        return firstPage(posts, count, 'dom');
       }),
   );
 

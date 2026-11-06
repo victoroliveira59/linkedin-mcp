@@ -24,6 +24,14 @@ const person = row({
   profileUrl: str,
 });
 const company = row({ name: str, universalName: str, companyUrl: str, subtitle: str });
+const profilePost = row({
+  text: str,
+  meta: str,
+  activityUrn: str,
+  sourceUrl: str,
+  reactionsCount: str,
+  commentsCount: str,
+});
 const profile = row({
   publicIdentifier: str,
   firstName: str,
@@ -81,6 +89,7 @@ const write = z.union([
     replayed: z.boolean().optional(),
     httpStatus: num,
     detail: str,
+    sourceUrl: str,
   }),
 ]);
 const applicationEvidenceSource = z.object({
@@ -120,6 +129,8 @@ const dataSchemas: Record<ToolName, z.ZodTypeAny> = {
   close_session: row({ closed: z.literal(true) }),
   get_my_profile: profile,
   get_profile: profile,
+  get_my_posts: z.array(profilePost).max(25),
+  get_profile_posts: z.array(profilePost).max(25),
   get_feed: z.array(row({ actor: str, text: str, activityUrn: str, sourceUrl: str })).max(25),
   get_notifications: z
     .array(row({ headline: str, text: str, publishedAt: num, read: z.boolean().optional() }))
@@ -312,6 +323,7 @@ const dataSchemas: Record<ToolName, z.ZodTypeAny> = {
   connect_with_person: write,
   send_message: write,
   create_post: write,
+  create_post_with_media: write,
   react_to_post: write,
   comment_on_post: write,
 };

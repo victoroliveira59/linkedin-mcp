@@ -96,11 +96,11 @@ export function createServer(
     policy,
     runtime.identity,
   );
-  registerProfileTools(server, voyager, guard, logger);
+  registerProfileTools(server, voyager, guard, logger, engine);
   registerFeedTools(server, voyager, guard, logger);
   registerDiscoveryTools(server, voyager, engine, guard, logger);
   registerApplicationTools(server);
-  registerWriteTools(server, voyager, guard, logger, policy);
+  registerWriteTools(server, voyager, guard, logger, policy, engine);
   logger.info('MCP server created', {
     version: VERSION,
     tools: registeredToolNames(server).length,

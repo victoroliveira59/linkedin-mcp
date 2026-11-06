@@ -1,7 +1,7 @@
 {
   "name": "linkedin-mcp-tools",
-  "version": "4.4.0",
-  "description": "Unofficial local LinkedIn MCP: structured profile, job, company and inbox reads, guided offline client setup and explicit safety limits. Current provider compatibility is not guaranteed.",
+  "version": "4.5.0",
+  "description": "Enhanced LinkedIn MCP Server by Victor Oliveira: structured profile, own/member posts, post analytics, media post creation (image + text), job/company/inbox research, and explicit safety limits.",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
@@ -66,6 +66,7 @@
     "automation",
     "anthropic",
     "cursor",
+    "antigravity",
     "ai-assistant",
     "voyager",
     "recruiting",
@@ -75,14 +76,14 @@
     "playwright"
   ],
   "license": "MIT",
-  "author": "Dev Agarwalla",
+  "author": "Victor Oliveira (forked from Dev Agarwalla)",
   "repository": {
     "type": "git",
-    "url": "https://github.com/devag7/linkedin-mcp.git"
+    "url": "https://github.com/victoroliveira59/linkedin-mcp.git"
   },
-  "homepage": "https://github.com/devag7/linkedin-mcp#readme",
+  "homepage": "https://github.com/victoroliveira59/linkedin-mcp#readme",
   "bugs": {
-    "url": "https://github.com/devag7/linkedin-mcp/issues"
+    "url": "https://github.com/victoroliveira59/linkedin-mcp/issues"
   },
   "engines": {
     "node": ">=20.0.0"
@@ -91,6 +92,9 @@
     "dist/index.js",
     "dist/index.js.map",
     "README.md",
+    "INSTALL_ANYWHERE.md",
+    "install.ps1",
+    "install.sh",
     "LICENSE",
     "DISCLAIMER.md",
     "mcp-manifest.json",
@@ -103,7 +107,7 @@
     "docs/PRIVACY.md",
     "docs/WORKFLOWS.md"
   ],
-  "mcpName": "io.github.devag7/linkedin-mcp",
+  "mcpName": "io.github.victoroliveira59/linkedin-mcp",
   "overrides": {
     "minimatch": "^11.0.4"
   }

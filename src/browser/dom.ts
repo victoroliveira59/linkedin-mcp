@@ -8,7 +8,9 @@
  * and degrades to whatever it can find rather than throwing.
  */
 
+import { existsSync } from 'node:fs';
 import type { BrowserEngine } from './engine.js';
+import type { RawPostResult } from './voyager.js';
 import type { Logger } from '../types.js';
 
 export interface ScrapedPerson {
@@ -324,6 +326,205 @@ export async function scrapeCompanyPosts(
 
     logger.debug('scrapeCompanyPosts', { found: posts.length });
     return posts as ScrapedCompanyPost[];
+  } finally {
+    await page.close().catch(() => {});
+  }
+}
+
+export interface ScrapedProfilePost {
+  text?: string;
+  meta?: string;
+  activityUrn?: string;
+  sourceUrl?: string;
+  reactionsCount?: string;
+  commentsCount?: string;
+}
+
+/**
+ * Scrape a member's recent posts/activities from `/in/:username/recent-activity/all/`.
+ * Returns post text, relative timestamp, activityUrn, sourceUrl, and engagement counts.
+ */
+export async function scrapeProfilePosts(
+  engine: BrowserEngine,
+  username: string,
+  count: number,
+  logger: Logger,
+): Promise<ScrapedProfilePost[]> {
+  const url = `${ORIGIN}/in/${encodeURIComponent(username)}/recent-activity/all/`;
+  const page = await engine.newPage();
+  try {
+    const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await engine.assertPageSafe(page, response?.status());
+    await page
+      .waitForSelector('div.feed-shared-update-v2, [data-urn*="activity"]', { timeout: 15000 })
+      .catch(() => {});
+    await page.waitForTimeout(1500);
+    await page.mouse.wheel(0, 3000).catch(() => {});
+    await page.waitForTimeout(1500);
+
+    await engine.assertPageSafe(page);
+    const posts = await page.evaluate((max: number) => {
+      const clean = (s: string | null | undefined): string | undefined =>
+        (s ?? '').replace(/\s+/g, ' ').trim() || undefined;
+      const cards = Array.from(
+        document.querySelectorAll<HTMLElement>(
+          'div.feed-shared-update-v2, [data-urn*="urn:li:activity"], [data-urn*="urn:li:ugcPost"]',
+        ),
+      );
+      const seen = new Set<string>();
+      const out: Array<Record<string, string | undefined>> = [];
+      for (const card of cards) {
+        const urn =
+          card.getAttribute('data-urn') ??
+          card.querySelector('[data-urn*="urn:li:activity"]')?.getAttribute('data-urn') ??
+          undefined;
+        const textEl = card.querySelector<HTMLElement>(
+          '.feed-shared-update-v2__description, .update-components-text, [class*="commentary"]',
+        );
+        const text = clean(textEl?.textContent);
+        const dedupeKey = urn ?? text;
+        if (!dedupeKey || seen.has(dedupeKey)) continue;
+        seen.add(dedupeKey);
+
+        const meta = clean(
+          card.querySelector<HTMLElement>(
+            '.update-components-actor__sub-description, time, [class*="sub-description"]',
+          )?.textContent,
+        );
+        const reactionsCount = clean(
+          card.querySelector<HTMLElement>(
+            '.social-details-social-counts__reactions-count, [class*="reactions-count"]',
+          )?.textContent,
+        );
+        const commentsCount = clean(
+          card.querySelector<HTMLElement>(
+            '.social-details-social-counts__comments, [class*="comments-count"]',
+          )?.textContent,
+        );
+        const sourceUrl = urn
+          ? `https://www.linkedin.com/feed/update/${encodeURIComponent(urn)}/`
+          : undefined;
+        out.push({
+          text,
+          meta,
+          activityUrn: urn,
+          sourceUrl,
+          reactionsCount,
+          commentsCount,
+        });
+        if (out.length >= max) break;
+      }
+      return out;
+    }, count);
+
+    logger.debug('scrapeProfilePosts', { username, found: posts.length });
+    return posts as ScrapedProfilePost[];
+  } finally {
+    await page.close().catch(() => {});
+  }
+}
+
+/**
+ * Publish a LinkedIn post with an attached image file via the authenticated browser composer.
+ */
+export async function publishPostWithMediaDom(
+  engine: BrowserEngine,
+  text: string,
+  imagePath: string,
+  logger: Logger,
+  beforeDispatch?: () => void,
+): Promise<RawPostResult> {
+  if (!existsSync(imagePath)) {
+    return {
+      status: 400,
+      ok: false,
+      body: JSON.stringify({ error: `Image file not found: ${imagePath}` }),
+      json: { error: `Image file not found: ${imagePath}` },
+    };
+  }
+  const page = await engine.newPage();
+  try {
+    const response = await page.goto(`${ORIGIN}/feed/`, {
+      waitUntil: 'domcontentloaded',
+      timeout: 30000,
+    });
+    await engine.assertPageSafe(page, response?.status());
+    await page.waitForTimeout(2000);
+
+    // Click "Start a post" / "Começar publicação"
+    const startBtn = page
+      .locator(
+        'button.share-box-feed-entry__trigger, [aria-label*="Começar publicação"], [aria-label*="Start a post"]',
+      )
+      .first();
+    await startBtn.click({ timeout: 15000 });
+    await page.waitForTimeout(1500);
+
+    // Click Media/Photo button and intercept filechooser, or set input[type="file"] directly
+    const fileInput = page.locator('input[type="file"]').first();
+    if ((await fileInput.count()) > 0) {
+      await fileInput.setInputFiles(imagePath);
+    } else {
+      const [fileChooser] = await Promise.all([
+        page.waitForEvent('filechooser', { timeout: 15000 }),
+        page
+          .locator(
+            'button[aria-label*="mídia"], button[aria-label*="media"], button[aria-label*="foto"], button[aria-label*="photo"], .share-promoted-detour-button',
+          )
+          .first()
+          .click(),
+      ]);
+      await fileChooser.setFiles(imagePath);
+    }
+
+    await page.waitForTimeout(2000);
+
+    // Click Next / Avançar if media editor step is shown
+    const nextBtn = page
+      .locator(
+        'button[aria-label*="Avançar"], button[aria-label*="Next"], .share-box-footer__primary-btn',
+      )
+      .first();
+    if (await nextBtn.isVisible().catch(() => false)) {
+      await nextBtn.click();
+      await page.waitForTimeout(1500);
+    }
+
+    // Fill post text in the Quill/contenteditable editor
+    const editor = page
+      .locator('.ql-editor[contenteditable="true"], [role="textbox"][contenteditable="true"]')
+      .first();
+    await editor.click({ timeout: 15000 });
+    await editor.fill(text);
+    await page.waitForTimeout(1000);
+
+    beforeDispatch?.();
+
+    // Click Post / Publicar
+    const publishBtn = page
+      .locator(
+        'button.share-actions__primary-action, button[aria-label*="Publicar"], button[aria-label*="Post"]',
+      )
+      .first();
+    await publishBtn.click({ timeout: 15000 });
+    await page.waitForTimeout(4000);
+
+    logger.info('publishPostWithMediaDom completed');
+    return {
+      status: 201,
+      ok: true,
+      body: JSON.stringify({ published: true }),
+      json: { published: true },
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error('publishPostWithMediaDom failed', { error: msg });
+    return {
+      status: 500,
+      ok: false,
+      body: JSON.stringify({ error: msg }),
+      json: { error: msg },
+    };
   } finally {
     await page.close().catch(() => {});
   }

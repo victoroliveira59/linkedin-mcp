@@ -12,9 +12,9 @@ const read = (route: string, source: 'voyager' | 'dom' = 'voyager', maxResults?:
   write: false,
   maxResults,
 });
-const write = (route: string) => ({
+const write = (route: string, source: 'voyager' | 'dom' = 'voyager') => ({
   route,
-  source: 'voyager' as const,
+  source,
   permission: 'alpha_write_opt_in_and_user_confirmation',
   write: true,
 });
@@ -24,6 +24,8 @@ export const CAPABILITIES = {
   close_session: local('local browser shutdown'),
   get_my_profile: read('/me + DASH profile + five component sections'),
   get_profile: read('DASH profile + five component sections'),
+  get_my_posts: read('/in/:me/recent-activity/all/', 'dom', 25),
+  get_profile_posts: read('/in/:username/recent-activity/all/', 'dom', 25),
   get_feed: read('voyagerFeedDashMainFeed', 'voyager', 25),
   get_notifications: read('voyagerIdentityDashNotificationCards', 'voyager', 50),
   search_people: read('/search/results/people/', 'dom', 25),
@@ -43,6 +45,7 @@ export const CAPABILITIES = {
     'voyagerMessagingDashMessengerMessages:createMessage; new thread experimental',
   ),
   create_post: write('voyagerFeedDashCreateShare'),
+  create_post_with_media: write('/feed/ composer modal + media file upload', 'dom'),
   react_to_post: write('voyagerSocialDashReactions'),
   comment_on_post: write('voyagerSocialDashNormComments'),
 } as const;
@@ -60,7 +63,7 @@ export function capabilityManifest(
     ...CAPABILITIES[name],
     provider: 'local_browser_unofficial',
     verification: 'offline_contract_tested',
-    offlineCheckedAt: name === 'get_inbox' ? '2026-10-30' : '2026-10-21',
+    offlineCheckedAt: name === 'get_inbox' ? '2026-10-30' : '2026-11-06',
     liveCheckedAt: null,
     availability:
       CAPABILITIES[name].write && !policy.writesEnabled
