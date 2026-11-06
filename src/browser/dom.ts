@@ -342,6 +342,7 @@ export interface ScrapedProfilePost {
 
 /**
  * Scrape a member's recent posts/activities from `/in/:username/recent-activity/all/`.
+ * Supports both LinkedIn SDUI (`div[componentkey^="update-card-focus"]`) and legacy DOM.
  * Returns post text, relative timestamp, activityUrn, sourceUrl, and engagement counts.
  */
 export async function scrapeProfilePosts(
@@ -356,7 +357,10 @@ export async function scrapeProfilePosts(
     const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await engine.assertPageSafe(page, response?.status());
     await page
-      .waitForSelector('div.feed-shared-update-v2, [data-urn*="activity"]', { timeout: 15000 })
+      .waitForSelector(
+        'div[componentkey^="update-card-focus"], div.feed-shared-update-v2, [data-urn*="activity"]',
+        { timeout: 15000 },
+      )
       .catch(() => {});
     await page.waitForTimeout(1500);
     await page.mouse.wheel(0, 3000).catch(() => {});
@@ -368,18 +372,25 @@ export async function scrapeProfilePosts(
         (s ?? '').replace(/\s+/g, ' ').trim() || undefined;
       const cards = Array.from(
         document.querySelectorAll<HTMLElement>(
-          'div.feed-shared-update-v2, [data-urn*="urn:li:activity"], [data-urn*="urn:li:ugcPost"]',
+          'div[componentkey^="update-card-focus"], div.feed-shared-update-v2, [data-urn*="urn:li:activity"], [data-urn*="urn:li:ugcPost"]',
         ),
       );
       const seen = new Set<string>();
       const out: Array<Record<string, string | undefined>> = [];
       for (const card of cards) {
-        const urn =
+        const urnAttr =
           card.getAttribute('data-urn') ??
           card.querySelector('[data-urn*="urn:li:activity"]')?.getAttribute('data-urn') ??
           undefined;
+        const activityHref =
+          card
+            .querySelector('a[href*="/feed/update/"], a[href*="urn:li:activity:"]')
+            ?.getAttribute('href') ?? undefined;
+        const urnMatch = (urnAttr ?? activityHref ?? '').match(/urn:li:activity:\d+/);
+        const urn = urnMatch ? urnMatch[0] : urnAttr;
+
         const textEl = card.querySelector<HTMLElement>(
-          '.feed-shared-update-v2__description, .update-components-text, [class*="commentary"]',
+          'p[componentkey], .feed-shared-update-v2__description, .update-components-text, [class*="commentary"]',
         );
         const text = clean(textEl?.textContent);
         const dedupeKey = urn ?? text;
@@ -402,7 +413,7 @@ export async function scrapeProfilePosts(
           )?.textContent,
         );
         const sourceUrl = urn
-          ? `https://www.linkedin.com/feed/update/${encodeURIComponent(urn)}/`
+          ? `https://www.linkedin.com/feed/update/${urn}/`
           : undefined;
         out.push({
           text,
